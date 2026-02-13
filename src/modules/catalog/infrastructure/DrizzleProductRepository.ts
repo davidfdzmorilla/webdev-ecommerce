@@ -99,12 +99,12 @@ export class DrizzleProductRepository implements ProductRepository {
       sku: SKU.create(data.sku),
       name: data.name,
       slug: data.slug,
-      description: data.description,
+      description: data.description || undefined,
       price: Price.create(parseFloat(data.priceAmount), data.priceCurrency),
-      categoryId: data.categoryId,
-      status: data.status,
-      createdAt: data.createdAt,
-      updatedAt: data.updatedAt,
+      categoryId: data.categoryId || undefined,
+      status: data.status as 'active' | 'inactive' | 'out_of_stock',
+      createdAt: new Date(data.createdAt),
+      updatedAt: new Date(data.updatedAt),
     });
   }
 }
