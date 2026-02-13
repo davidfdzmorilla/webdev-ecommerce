@@ -2,8 +2,8 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/shared/infrastructure/db';
 import { orders, orderItems, shippingAddresses } from '@/shared/infrastructure/db/schema';
 import type { OrderRepository } from '../domain/repositories/OrderRepository';
-import type { Order } from '../domain/entities/Order';
-import { OrderStatus } from '../domain/value-objects/OrderStatus';
+import { Order } from '../domain/entities/Order';
+import { OrderStatus, type OrderStatusValue } from '../domain/value-objects/OrderStatus';
 import { Price } from '@/modules/catalog/domain/value-objects/Price';
 import { Ok, Err, type Result } from '@/shared/kernel/Result';
 
@@ -93,10 +93,13 @@ export class DrizzleOrderRepository implements OrderRepository {
   }
 
   private toDomain(data: any): Order {
+    const statusValue = data.status as OrderStatusValue;
+    const status = OrderStatus[statusValue]();
+    
     return Order.fromData({
       id: data.id,
       userId: data.userId,
-      status: new OrderStatus(data.status),
+      status,
       items: data.items.map((item: any) => ({
         productId: item.productId,
         productName: item.productName,

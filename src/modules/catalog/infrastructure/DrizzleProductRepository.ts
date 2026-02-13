@@ -2,7 +2,7 @@ import { eq, like, ilike } from 'drizzle-orm';
 import { db } from '@/shared/infrastructure/db';
 import { products } from '@/shared/infrastructure/db/schema';
 import type { ProductRepository } from '../domain/repositories/ProductRepository';
-import type { Product } from '../domain/entities/Product';
+import { Product } from '../domain/entities/Product';
 import { Price } from '../domain/value-objects/Price';
 import { SKU } from '../domain/value-objects/SKU';
 import { Ok, Err, type Result } from '@/shared/kernel/Result';
