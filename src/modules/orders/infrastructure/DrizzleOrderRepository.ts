@@ -93,7 +93,7 @@ export class DrizzleOrderRepository implements OrderRepository {
   }
 
   private toDomain(data: any): Order {
-    return new (Order as any)({
+    return Order.fromData({
       id: data.id,
       userId: data.userId,
       status: new OrderStatus(data.status),

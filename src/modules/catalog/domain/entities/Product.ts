@@ -22,6 +22,10 @@ export class Product {
 
   constructor(private props: ProductProps) {}
 
+  static fromData(props: ProductProps): Product {
+    return new Product(props);
+  }
+
   get id(): string {
     return this.props.id;
   }

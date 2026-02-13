@@ -94,7 +94,7 @@ export class DrizzleProductRepository implements ProductRepository {
   }
 
   private toDomain(data: any): Product {
-    return new (Product as any)({
+    return Product.fromData({
       id: data.id,
       sku: SKU.create(data.sku),
       name: data.name,

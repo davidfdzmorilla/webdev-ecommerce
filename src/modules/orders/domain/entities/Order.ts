@@ -40,6 +40,10 @@ export class Order {
 
   constructor(private props: OrderProps) {}
 
+  static fromData(props: OrderProps): Order {
+    return new Order(props);
+  }
+
   get id(): string {
     return this.props.id;
   }
