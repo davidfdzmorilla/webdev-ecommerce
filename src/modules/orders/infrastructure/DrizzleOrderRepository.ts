@@ -1,128 +1,184 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@/shared/infrastructure/db';
 import { orders, orderItems, shippingAddresses } from '@/shared/infrastructure/db/schema';
-import type { OrderRepository } from '../domain/repositories/OrderRepository';
+import type { IOrderRepository } from '../domain/repositories/IOrderRepository';
 import { Order } from '../domain/entities/Order';
-import { OrderStatus, type OrderStatusValue } from '../domain/value-objects/OrderStatus';
-import { Price } from '@/modules/catalog/domain/value-objects/Price';
-import { Ok, Err, type Result } from '@/shared/kernel/Result';
+import { OrderItem } from '../domain/entities/OrderItem';
+import { Result, Ok, Err } from '@/shared/kernel';
 
-export class DrizzleOrderRepository implements OrderRepository {
-  async findById(id: string): Promise<Order | null> {
-    const order = await db.query.orders.findFirst({
-      where: eq(orders.id, id),
-      with: {
-        items: true,
-        shippingAddress: true,
-      },
-    });
-
-    return order ? this.toDomain(order) : null;
-  }
-
-  async findByUserId(userId: string): Promise<Order[]> {
-    const results = await db.query.orders.findMany({
-      where: eq(orders.userId, userId),
-      with: {
-        items: true,
-        shippingAddress: true,
-      },
-    });
-
-    return results.map((r) => this.toDomain(r));
-  }
-
+export class DrizzleOrderRepository implements IOrderRepository {
   async save(order: Order): Promise<Result<void>> {
     try {
+      // Start transaction
       await db.transaction(async (tx) => {
-        // Insert/update order
+        // Upsert order
+        const orderData = {
+          id: order.id,
+          userId: order.userId,
+          status: order.status,
+          subtotalAmount: order.total.toString(),
+          taxAmount: '0.00',
+          shippingAmount: '0.00',
+          totalAmount: order.total.toString(),
+          currency: 'USD',
+          createdAt: order.createdAt,
+          updatedAt: order.updatedAt,
+        };
+
         await tx
           .insert(orders)
-          .values({
-            id: order.id,
-            userId: order.userId,
-            status: order.status.value,
-            subtotalAmount: order.subtotal.amount.toString(),
-            taxAmount: order.tax.amount.toString(),
-            shippingAmount: order.shipping.amount.toString(),
-            totalAmount: order.total.amount.toString(),
-            currency: order.total.currency,
-            createdAt: order.createdAt,
-            updatedAt: order.updatedAt,
-          })
+          .values(orderData)
           .onConflictDoUpdate({
             target: orders.id,
             set: {
-              status: order.status.value,
-              updatedAt: order.updatedAt,
+              status: orderData.status,
+              updatedAt: orderData.updatedAt,
             },
           });
 
+        // Delete existing order items (for updates)
+        await tx.delete(orderItems).where(eq(orderItems.orderId, order.id));
+
         // Insert order items
-        for (const item of order.items) {
-          await tx.insert(orderItems).values({
+        if (order.items.length > 0) {
+          const itemsData = order.items.map((item) => ({
+            id: item.id,
             orderId: order.id,
             productId: item.productId,
             productName: item.productName,
-            productSku: item.productSku,
+            productSku: '', // Would need to fetch from product
             quantity: item.quantity,
-            unitPriceAmount: item.unitPrice.amount.toString(),
-            totalAmount: item.unitPrice.multiply(item.quantity).amount.toString(),
-          });
+            unitPriceAmount: item.priceAtOrder.toString(),
+            totalAmount: item.subtotal.toString(),
+            createdAt: new Date(),
+          }));
+
+          await tx.insert(orderItems).values(itemsData);
         }
 
-        // Insert shipping address
-        const addr = order.shippingAddress;
-        await tx.insert(shippingAddresses).values({
-          orderId: order.id,
-          fullName: addr.fullName,
-          addressLine1: addr.addressLine1,
-          addressLine2: addr.addressLine2,
-          city: addr.city,
-          state: addr.state,
-          postalCode: addr.postalCode,
-          country: addr.country,
-          phone: addr.phone,
-        });
+        // Upsert shipping address
+        if (order.shippingAddress) {
+          const addressData = {
+            id: crypto.randomUUID(),
+            orderId: order.id,
+            fullName: '', // Would come from user
+            addressLine1: order.shippingAddress.street,
+            addressLine2: null,
+            city: order.shippingAddress.city,
+            state: null,
+            postalCode: order.shippingAddress.postalCode,
+            country: order.shippingAddress.country,
+            phone: null,
+          };
+
+          // Delete existing address
+          await tx.delete(shippingAddresses).where(eq(shippingAddresses.orderId, order.id));
+          // Insert new address
+          await tx.insert(shippingAddresses).values(addressData);
+        }
       });
 
       return Ok(undefined);
     } catch (error) {
-      return Err(error instanceof Error ? error : new Error('Unknown error'));
+      return Err(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
-  private toDomain(data: any): Order {
-    const statusValue = data.status as OrderStatusValue;
-    const status = OrderStatus[statusValue]();
-    
-    return Order.fromData({
-      id: data.id,
-      userId: data.userId,
-      status,
-      items: data.items.map((item: any) => ({
-        productId: item.productId,
-        productName: item.productName,
-        productSku: item.productSku,
-        quantity: item.quantity,
-        unitPrice: Price.create(parseFloat(item.unitPriceAmount)),
-      })),
-      shippingAddress: {
-        fullName: data.shippingAddress.fullName,
-        addressLine1: data.shippingAddress.addressLine1,
-        addressLine2: data.shippingAddress.addressLine2,
-        city: data.shippingAddress.city,
-        state: data.shippingAddress.state,
-        postalCode: data.shippingAddress.postalCode,
-        country: data.shippingAddress.country,
-        phone: data.shippingAddress.phone,
+  async findById(id: string): Promise<Result<Order | null>> {
+    try {
+      const orderRows = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
+      
+      if (orderRows.length === 0) {
+        return Ok(null);
+      }
+
+      const orderRow = orderRows[0];
+
+      // Fetch order items
+      const itemRows = await db.select().from(orderItems).where(eq(orderItems.orderId, id));
+
+      // Fetch shipping address
+      const addressRows = await db
+        .select()
+        .from(shippingAddresses)
+        .where(eq(shippingAddresses.orderId, id))
+        .limit(1);
+
+      const order = this.toDomain(orderRow, itemRows, addressRows[0]);
+      return Ok(order);
+    } catch (error) {
+      return Err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  async findByUserId(userId: string, limit: number = 50): Promise<Result<Order[]>> {
+    try {
+      const orderRows = await db
+        .select()
+        .from(orders)
+        .where(eq(orders.userId, userId))
+        .orderBy(orders.createdAt)
+        .limit(limit);
+
+      const orderList = await Promise.all(
+        orderRows.map(async (orderRow) => {
+          // Fetch items for each order
+          const itemRows = await db
+            .select()
+            .from(orderItems)
+            .where(eq(orderItems.orderId, orderRow.id));
+
+          // Fetch address
+          const addressRows = await db
+            .select()
+            .from(shippingAddresses)
+            .where(eq(shippingAddresses.orderId, orderRow.id))
+            .limit(1);
+
+          return this.toDomain(orderRow, itemRows, addressRows[0]);
+        })
+      );
+
+      return Ok(orderList);
+    } catch (error) {
+      return Err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private toDomain(orderRow: any, itemRows: any[], addressRow?: any): Order {
+    const items = itemRows.map((item) =>
+      OrderItem.fromData(
+        {
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          priceAtOrder: parseFloat(item.unitPriceAmount),
+          subtotal: parseFloat(item.totalAmount),
+        },
+        item.id
+      )
+    );
+
+    const shippingAddress = addressRow
+      ? {
+          street: addressRow.addressLine1,
+          city: addressRow.city,
+          postalCode: addressRow.postalCode,
+          country: addressRow.country,
+        }
+      : undefined;
+
+    return Order.fromData(
+      {
+        userId: orderRow.userId,
+        items,
+        status: orderRow.status,
+        total: parseFloat(orderRow.totalAmount),
+        shippingAddress,
+        createdAt: orderRow.createdAt,
+        updatedAt: orderRow.updatedAt,
       },
-      subtotal: Price.create(parseFloat(data.subtotalAmount)),
-      tax: Price.create(parseFloat(data.taxAmount)),
-      shipping: Price.create(parseFloat(data.shippingAmount)),
-      total: Price.create(parseFloat(data.totalAmount)),
-      createdAt: data.createdAt,
-      updatedAt: data.updatedAt,
-    });
+      orderRow.id
+    );
   }
 }
