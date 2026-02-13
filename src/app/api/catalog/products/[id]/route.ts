@@ -10,9 +10,9 @@ const productRepository = new DrizzleProductRepository();
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
+  const { id } = await context.params;
   try {
     const useCase = new GetProductUseCase(productRepository);
     const result = await useCase.byId(id);
