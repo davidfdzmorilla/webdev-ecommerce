@@ -10,6 +10,11 @@ services:
       - "5436:5432"
     volumes:
       - ecommerce_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop_user -d shop_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -18,7 +23,36 @@ services:
       - "6383:6379"
     volumes:
       - ecommerce_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ecommerce-app
+    environment:
+      DATABASE_URL: postgresql://shop_user:shop_password@db:5432/shop_db
+      REDIS_URL: redis://redis:6379
+      BETTER_AUTH_URL: https://shop.davidfdzmorilla.dev
+      BETTER_AUTH_SECRET: xK9mP4vL2nQ8jR6wT3yH7bN1cV5zF0aD
+      NODE_ENV: production
+    ports:
+      - "3006:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   ecommerce_db_data:
   ecommerce_redis_data:
+
+networks:
+  default:
+    name: ecommerce_network
