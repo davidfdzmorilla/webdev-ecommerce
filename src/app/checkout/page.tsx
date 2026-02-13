@@ -1,6 +1,8 @@
 import { getCart, getCartTotal } from '@/modules/orders/application/Cart';
 import { redirect } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 export default async function CheckoutPage() {
   const cart = await getCart();
   const total = await getCartTotal();

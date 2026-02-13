@@ -1,6 +1,8 @@
 import { getCart, getCartTotal } from '@/modules/orders/application/Cart';
 import Link from 'next/link';
 
+export const dynamic = 'force-dynamic';
+
 export default async function CartPage() {
   const cart = await getCart();
   const total = await getCartTotal();
