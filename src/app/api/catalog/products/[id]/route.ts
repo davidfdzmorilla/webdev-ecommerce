@@ -10,11 +10,12 @@ const productRepository = new DrizzleProductRepository();
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     const useCase = new GetProductUseCase(productRepository);
-    const result = await useCase.byId(params.id);
+    const result = await useCase.byId(id);
 
     if (!result.success) {
       return NextResponse.json({ error: result.error.message }, { status: 500 });

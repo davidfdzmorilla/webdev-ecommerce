@@ -25,7 +25,7 @@ export class InMemoryEventBus implements IEventBus {
     }
   }
 
-  async publishAll(events: DomainEvent[]): Promise<void> {
+  async publishAll(events: readonly DomainEvent[]): Promise<void> {
     for (const event of events) {
       await this.publish(event);
     }

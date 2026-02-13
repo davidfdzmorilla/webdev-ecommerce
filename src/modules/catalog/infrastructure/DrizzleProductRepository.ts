@@ -1,7 +1,7 @@
 import { eq, like, and, sql } from 'drizzle-orm';
 import { db } from '@/shared/infrastructure/db';
 import { products } from '@/shared/infrastructure/db/schema';
-import type { IProductRepository, FindManyQuery } from '../domain/repositories/ProductRepository';
+import type { IProductRepository, FindManyQuery } from '../domain/repositories/IProductRepository';
 import { Product } from '../domain/entities/Product';
 import { SKU } from '../domain/value-objects/SKU';
 import { Price } from '../domain/value-objects/Price';
@@ -99,7 +99,7 @@ export class DrizzleProductRepository implements IProductRepository {
       let queryBuilder = db.select().from(products);
 
       if (conditions.length > 0) {
-        queryBuilder = queryBuilder.where(and(...conditions));
+        queryBuilder = queryBuilder.where(and(...conditions)) as any;
       }
 
       const rows = await queryBuilder
@@ -135,7 +135,7 @@ export class DrizzleProductRepository implements IProductRepository {
       let queryBuilder = db.select({ count: sql<number>`count(*)` }).from(products);
 
       if (conditions.length > 0) {
-        queryBuilder = queryBuilder.where(and(...conditions));
+        queryBuilder = queryBuilder.where(and(...conditions)) as any;
       }
 
       const result = await queryBuilder;

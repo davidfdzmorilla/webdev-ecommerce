@@ -20,7 +20,7 @@ export interface IEventBus {
   /**
    * Publish multiple domain events
    */
-  publishAll(events: DomainEvent[]): Promise<void>;
+  publishAll(events: readonly DomainEvent[]): Promise<void>;
 
   /**
    * Subscribe to an event type

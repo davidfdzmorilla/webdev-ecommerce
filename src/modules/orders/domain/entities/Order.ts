@@ -1,83 +1,90 @@
-import { OrderStatus, type OrderStatusValue } from '../value-objects/OrderStatus';
-import { Price } from '@/modules/catalog/domain/value-objects/Price';
-import type { DomainEvent } from '@/shared/domain-events/DomainEvent';
-
-export interface OrderItemData {
-  productId: string;
-  productName: string;
-  productSku: string;
-  quantity: number;
-  unitPrice: Price;
-}
-
-export interface ShippingAddressData {
-  fullName: string;
-  addressLine1: string;
-  addressLine2?: string;
-  city: string;
-  state?: string;
-  postalCode: string;
-  country: string;
-  phone?: string;
-}
+import { AggregateRoot } from '@/shared/kernel';
+import { OrderItem } from './OrderItem';
+import type { OrderStatus } from '../value-objects/OrderStatus';
+import { canTransitionOrderStatus } from '../value-objects/OrderStatus';
 
 export interface OrderProps {
-  id: string;
   userId: string;
+  items: OrderItem[];
   status: OrderStatus;
-  items: OrderItemData[];
-  shippingAddress: ShippingAddressData;
-  subtotal: Price;
-  tax: Price;
-  shipping: Price;
-  total: Price;
+  total: number;
+  shippingAddress?: {
+    street: string;
+    city: string;
+    postalCode: string;
+    country: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
 
-export class Order {
-  private domainEvents: DomainEvent[] = [];
-
-  constructor(private props: OrderProps) {}
-
-  static fromData(props: OrderProps): Order {
-    return new Order(props);
+/**
+ * Order aggregate root
+ * Manages order lifecycle through state machine
+ */
+export class Order extends AggregateRoot<OrderProps> {
+  private constructor(props: OrderProps, id: string) {
+    super(props, id);
   }
 
-  get id(): string {
-    return this.props.id;
+  static create(
+    userId: string,
+    items: OrderItem[],
+    shippingAddress?: OrderProps['shippingAddress']
+  ): Order {
+    if (items.length === 0) {
+      throw new Error('Order must have at least one item');
+    }
+
+    const total = items.reduce((sum, item) => sum + item.subtotal, 0);
+    const now = new Date();
+
+    const order = new Order(
+      {
+        userId,
+        items,
+        status: 'PENDING',
+        total,
+        shippingAddress,
+        createdAt: now,
+        updatedAt: now,
+      },
+      crypto.randomUUID()
+    );
+
+    order.addDomainEvent({
+      aggregateId: order.id,
+      aggregateType: 'Order',
+      eventType: 'OrderCreated',
+      eventData: JSON.stringify({ orderId: order.id, userId, total }),
+      occurredAt: new Date(),
+    });
+
+    return order;
+  }
+
+  static fromData(props: OrderProps, id: string): Order {
+    return new Order(props, id);
   }
 
   get userId(): string {
     return this.props.userId;
   }
 
+  get items(): readonly OrderItem[] {
+    return this.props.items;
+  }
+
   get status(): OrderStatus {
     return this.props.status;
   }
 
-  get items(): OrderItemData[] {
-    return [...this.props.items];
-  }
-
-  get shippingAddress(): ShippingAddressData {
-    return { ...this.props.shippingAddress };
-  }
-
-  get subtotal(): Price {
-    return this.props.subtotal;
-  }
-
-  get tax(): Price {
-    return this.props.tax;
-  }
-
-  get shipping(): Price {
-    return this.props.shipping;
-  }
-
-  get total(): Price {
+  get total(): number {
     return this.props.total;
+  }
+
+  get shippingAddress(): OrderProps['shippingAddress'] {
+    return this.props.shippingAddress;
   }
 
   get createdAt(): Date {
@@ -88,30 +95,52 @@ export class Order {
     return this.props.updatedAt;
   }
 
-  confirm(): void {
-    if (!this.props.status.canTransitionTo('confirmed')) {
-      throw new Error(`Cannot confirm order with status ${this.props.status.value}`);
+  /**
+   * Update order status with validation
+   */
+  updateStatus(newStatus: OrderStatus): void {
+    if (!canTransitionOrderStatus(this.props.status, newStatus)) {
+      throw new Error(
+        `Invalid order status transition: ${this.props.status} -> ${newStatus}`
+      );
     }
 
-    this.props.status = OrderStatus.confirmed();
+    this.props.status = newStatus;
     this.props.updatedAt = new Date();
 
     this.addDomainEvent({
       aggregateId: this.id,
       aggregateType: 'Order',
-      eventType: 'OrderConfirmed',
+      eventType: 'OrderStatusChanged',
+      eventData: JSON.stringify({ orderId: this.id, status: newStatus }),
+      occurredAt: new Date(),
+    });
+  }
+
+  /**
+   * Mark order as paid
+   */
+  markAsPaid(): void {
+    this.updateStatus('PAID');
+
+    this.addDomainEvent({
+      aggregateId: this.id,
+      aggregateType: 'Order',
+      eventType: 'OrderPaid',
       eventData: JSON.stringify({ orderId: this.id }),
       occurredAt: new Date(),
     });
   }
 
+  /**
+   * Cancel order
+   */
   cancel(): void {
-    if (!this.props.status.canTransitionTo('cancelled')) {
-      throw new Error(`Cannot cancel order with status ${this.props.status.value}`);
+    if (this.props.status !== 'PENDING' && this.props.status !== 'PAYMENT_PENDING') {
+      throw new Error('Can only cancel pending orders');
     }
 
-    this.props.status = OrderStatus.cancelled();
-    this.props.updatedAt = new Date();
+    this.updateStatus('CANCELLED');
 
     this.addDomainEvent({
       aggregateId: this.id,
@@ -120,53 +149,5 @@ export class Order {
       eventData: JSON.stringify({ orderId: this.id }),
       occurredAt: new Date(),
     });
-  }
-
-  private addDomainEvent(event: DomainEvent): void {
-    this.domainEvents.push(event);
-  }
-
-  getDomainEvents(): DomainEvent[] {
-    return [...this.domainEvents];
-  }
-
-  clearDomainEvents(): void {
-    this.domainEvents = [];
-  }
-
-  static create(
-    userId: string,
-    items: OrderItemData[],
-    shippingAddress: ShippingAddressData
-  ): Order {
-    const subtotal = items.reduce((sum, item) => sum.add(item.unitPrice.multiply(item.quantity)), Price.create(0));
-    const tax = subtotal.multiply(0.21); // 21% VAT
-    const shipping = Price.create(5.99); // Fixed shipping
-    const total = subtotal.add(tax).add(shipping);
-
-    const now = new Date();
-    const order = new Order({
-      id: crypto.randomUUID(),
-      userId,
-      status: OrderStatus.pending(),
-      items,
-      shippingAddress,
-      subtotal,
-      tax,
-      shipping,
-      total,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    order.addDomainEvent({
-      aggregateId: order.id,
-      aggregateType: 'Order',
-      eventType: 'OrderCreated',
-      eventData: JSON.stringify({ orderId: order.id, userId }),
-      occurredAt: now,
-    });
-
-    return order;
   }
 }

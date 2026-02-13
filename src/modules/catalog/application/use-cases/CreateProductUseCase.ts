@@ -1,7 +1,7 @@
 import { Product } from '../../domain/entities/Product';
 import { SKU } from '../../domain/value-objects/SKU';
 import { Price } from '../../domain/value-objects/Price';
-import type { IProductRepository } from '../../domain/repositories/ProductRepository';
+import type { IProductRepository } from '../../domain/repositories/IProductRepository';
 import type { IEventBus } from '@/shared/domain-events/IEventBus';
 import { Result, Ok, Err } from '@/shared/kernel';
 import type { CreateProductDTO, ProductDTO } from '../dto/ProductDTO';

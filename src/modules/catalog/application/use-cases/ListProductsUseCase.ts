@@ -1,5 +1,5 @@
 import type { Product } from '../../domain/entities/Product';
-import type { IProductRepository } from '../../domain/repositories/ProductRepository';
+import type { IProductRepository } from '../../domain/repositories/IProductRepository';
 import { Result, Ok, Err } from '@/shared/kernel';
 import type { ProductDTO, ProductListDTO } from '../dto/ProductDTO';
 

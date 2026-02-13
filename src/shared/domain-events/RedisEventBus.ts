@@ -44,7 +44,7 @@ export class RedisEventBus implements IEventBus {
     await this.publisher.publish(channel, message);
   }
 
-  async publishAll(events: DomainEvent[]): Promise<void> {
+  async publishAll(events: readonly DomainEvent[]): Promise<void> {
     const pipeline = this.publisher.pipeline();
     
     for (const event of events) {
