@@ -1,110 +1,165 @@
-import { eq, like, ilike } from 'drizzle-orm';
+import { eq, like, and, sql } from 'drizzle-orm';
 import { db } from '@/shared/infrastructure/db';
 import { products } from '@/shared/infrastructure/db/schema';
-import type { ProductRepository } from '../domain/repositories/ProductRepository';
+import type { IProductRepository, FindManyQuery } from '../domain/repositories/ProductRepository';
 import { Product } from '../domain/entities/Product';
-import { Price } from '../domain/value-objects/Price';
 import { SKU } from '../domain/value-objects/SKU';
-import { Ok, Err, type Result } from '@/shared/kernel/Result';
+import { Price } from '../domain/value-objects/Price';
+import { Result, Ok, Err } from '@/shared/kernel';
 
-export class DrizzleProductRepository implements ProductRepository {
-  async findById(id: string): Promise<Product | null> {
-    const result = await db.query.products.findFirst({
-      where: eq(products.id, id),
-    });
-
-    return result ? this.toDomain(result) : null;
-  }
-
-  async findBySku(sku: string): Promise<Product | null> {
-    const result = await db.query.products.findFirst({
-      where: eq(products.sku, sku),
-    });
-
-    return result ? this.toDomain(result) : null;
-  }
-
-  async findBySlug(slug: string): Promise<Product | null> {
-    const result = await db.query.products.findFirst({
-      where: eq(products.slug, slug),
-    });
-
-    return result ? this.toDomain(result) : null;
-  }
-
-  async findByCategory(categoryId: string): Promise<Product[]> {
-    const results = await db.query.products.findMany({
-      where: eq(products.categoryId, categoryId),
-    });
-
-    return results.map((r) => this.toDomain(r));
-  }
-
-  async search(query: string): Promise<Product[]> {
-    const results = await db.query.products.findMany({
-      where: ilike(products.name, `%${query}%`),
-    });
-
-    return results.map((r) => this.toDomain(r));
-  }
-
+export class DrizzleProductRepository implements IProductRepository {
   async save(product: Product): Promise<Result<void>> {
     try {
+      const data = {
+        id: product.id,
+        sku: product.sku.value,
+        name: product.name,
+        slug: product.slug,
+        description: product.description,
+        priceAmount: product.price.amount.toString(),
+        priceCurrency: product.price.currency,
+        categoryId: product.categoryId,
+        status: product.status,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+      };
+
+      // Upsert (insert or update)
       await db
         .insert(products)
-        .values({
-          id: product.id,
-          sku: product.sku.value,
-          name: product.name,
-          slug: product.slug,
-          description: product.description,
-          priceAmount: product.price.amount.toString(),
-          priceCurrency: product.price.currency,
-          categoryId: product.categoryId,
-          status: product.status,
-          createdAt: product.createdAt,
-          updatedAt: product.updatedAt,
-        })
+        .values(data)
         .onConflictDoUpdate({
           target: products.id,
           set: {
-            name: product.name,
-            description: product.description,
-            priceAmount: product.price.amount.toString(),
-            priceCurrency: product.price.currency,
-            categoryId: product.categoryId,
-            status: product.status,
-            updatedAt: product.updatedAt,
+            name: data.name,
+            slug: data.slug,
+            description: data.description,
+            priceAmount: data.priceAmount,
+            priceCurrency: data.priceCurrency,
+            categoryId: data.categoryId,
+            status: data.status,
+            updatedAt: data.updatedAt,
           },
         });
 
       return Ok(undefined);
     } catch (error) {
-      return Err(error instanceof Error ? error : new Error('Unknown error'));
+      return Err(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
-  async delete(id: string): Promise<Result<void>> {
+  async findById(id: string): Promise<Result<Product | null>> {
     try {
-      await db.delete(products).where(eq(products.id, id));
-      return Ok(undefined);
+      const rows = await db.select().from(products).where(eq(products.id, id)).limit(1);
+      
+      if (rows.length === 0) {
+        return Ok(null);
+      }
+
+      const product = this.toDomain(rows[0]);
+      return Ok(product);
     } catch (error) {
-      return Err(error instanceof Error ? error : new Error('Unknown error'));
+      return Err(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
-  private toDomain(data: any): Product {
+  async findBySKU(sku: string): Promise<Result<Product | null>> {
+    try {
+      const rows = await db.select().from(products).where(eq(products.sku, sku)).limit(1);
+      
+      if (rows.length === 0) {
+        return Ok(null);
+      }
+
+      const product = this.toDomain(rows[0]);
+      return Ok(product);
+    } catch (error) {
+      return Err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  async findMany(query: FindManyQuery): Promise<Result<Product[]>> {
+    try {
+      const conditions = [];
+
+      if (query.categoryId) {
+        conditions.push(eq(products.categoryId, query.categoryId));
+      }
+
+      if (query.status) {
+        conditions.push(eq(products.status, query.status));
+      }
+
+      if (query.search) {
+        conditions.push(
+          sql`${products.name} ILIKE ${`%${query.search}%`} OR ${products.description} ILIKE ${`%${query.search}%`}`
+        );
+      }
+
+      let queryBuilder = db.select().from(products);
+
+      if (conditions.length > 0) {
+        queryBuilder = queryBuilder.where(and(...conditions));
+      }
+
+      const rows = await queryBuilder
+        .limit(query.take ?? 20)
+        .offset(query.skip ?? 0)
+        .orderBy(products.createdAt);
+
+      const productList = rows.map((row) => this.toDomain(row));
+      return Ok(productList);
+    } catch (error) {
+      return Err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  async count(query: Omit<FindManyQuery, 'skip' | 'take'>): Promise<Result<number>> {
+    try {
+      const conditions = [];
+
+      if (query.categoryId) {
+        conditions.push(eq(products.categoryId, query.categoryId));
+      }
+
+      if (query.status) {
+        conditions.push(eq(products.status, query.status));
+      }
+
+      if (query.search) {
+        conditions.push(
+          sql`${products.name} ILIKE ${`%${query.search}%`} OR ${products.description} ILIKE ${`%${query.search}%`}`
+        );
+      }
+
+      let queryBuilder = db.select({ count: sql<number>`count(*)` }).from(products);
+
+      if (conditions.length > 0) {
+        queryBuilder = queryBuilder.where(and(...conditions));
+      }
+
+      const result = await queryBuilder;
+      return Ok(Number(result[0].count));
+    } catch (error) {
+      return Err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private toDomain(row: any): Product {
+    const sku = SKU.create(row.sku);
+    const price = Price.create(parseFloat(row.priceAmount), row.priceCurrency);
+
     return Product.fromData({
-      id: data.id,
-      sku: SKU.create(data.sku),
-      name: data.name,
-      slug: data.slug,
-      description: data.description || undefined,
-      price: Price.create(parseFloat(data.priceAmount), data.priceCurrency),
-      categoryId: data.categoryId || undefined,
-      status: data.status as 'active' | 'inactive' | 'out_of_stock',
-      createdAt: new Date(data.createdAt),
-      updatedAt: new Date(data.updatedAt),
+      id: row.id,
+      sku,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      price,
+      categoryId: row.categoryId,
+      status: row.status,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
     });
   }
 }
