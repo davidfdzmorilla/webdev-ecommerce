@@ -11,6 +11,7 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').notNull().default(false),
   image: text('image'),
+  role: varchar('role', { length: 20 }).notNull().default('customer'), // 'customer' | 'admin'
   createdAt: timestamp('created_at').notNull().default(sql`now()`),
   updatedAt: timestamp('updated_at').notNull().default(sql`now()`),
 });
@@ -45,6 +46,22 @@ export const verifications = pgTable('verifications', {
   value: text('value').notNull(),
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').notNull().default(sql`now()`),
+});
+
+// ============================================================================
+// IDENTITY CONTEXT (User Addresses)
+// ============================================================================
+
+export const addresses = pgTable('identity_addresses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  street: text('street').notNull(),
+  city: varchar('city', { length: 100 }).notNull(),
+  postalCode: varchar('postal_code', { length: 20 }).notNull(),
+  country: varchar('country', { length: 2 }).notNull(), // ISO 3166-1 alpha-2
+  isDefault: boolean('is_default').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().default(sql`now()`),
+  updatedAt: timestamp('updated_at').notNull().default(sql`now()`),
 });
 
 // ============================================================================
@@ -95,6 +112,15 @@ export const productImages = pgTable('catalog_product_images', {
 // ORDERS CONTEXT
 // ============================================================================
 
+export const carts = pgTable('orders_carts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  items: text('items').notNull().default('[]'), // JSON array of cart items
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').notNull().default(sql`now()`),
+  updatedAt: timestamp('updated_at').notNull().default(sql`now()`),
+});
+
 export const orders = pgTable('orders_orders', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: text('user_id').notNull(),
@@ -131,6 +157,33 @@ export const shippingAddresses = pgTable('orders_shipping_addresses', {
   postalCode: varchar('postal_code', { length: 20 }).notNull(),
   country: varchar('country', { length: 2 }).notNull(),
   phone: varchar('phone', { length: 20 }),
+});
+
+// ============================================================================
+// PAYMENTS CONTEXT
+// ============================================================================
+
+export const payments = pgTable('payments_payments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orderId: uuid('order_id').notNull().references(() => orders.id),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('PENDING'),
+  provider: varchar('provider', { length: 50 }).notNull(), // 'stripe', 'paypal'
+  transactionId: text('transaction_id'),
+  metadata: text('metadata'), // JSON
+  createdAt: timestamp('created_at').notNull().default(sql`now()`),
+  updatedAt: timestamp('updated_at').notNull().default(sql`now()`),
+});
+
+export const refunds = pgTable('payments_refunds', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  paymentId: uuid('payment_id').notNull().references(() => payments.id),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  reason: text('reason').notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('PENDING'),
+  transactionId: text('transaction_id'),
+  createdAt: timestamp('created_at').notNull().default(sql`now()`),
+  updatedAt: timestamp('updated_at').notNull().default(sql`now()`),
 });
 
 // ============================================================================
