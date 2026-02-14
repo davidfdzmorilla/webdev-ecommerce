@@ -1,14 +1,14 @@
 import { betterAuth } from 'better-auth';
+import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { db } from '../db';
 
 export const auth = betterAuth({
-  database: {
+  database: drizzleAdapter(db, {
     provider: 'pg',
-    url: process.env.DATABASE_URL!,
-  },
+  }),
   baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3006',
   trustedOrigins: [
-    'https://shop.davidfdzmorilla.dev',
+    'https://ecommerce.davidfdzmorilla.dev',
     'http://localhost:3006',
     'http://localhost:3000',
   ],

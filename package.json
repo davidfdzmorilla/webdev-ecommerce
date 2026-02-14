@@ -14,9 +14,10 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.714.0",
+    "@better-auth/drizzle-adapter": "1.5.0-beta.9",
     "@tailwindcss/postcss": "^4.1.18",
     "autoprefixer": "^10.4.24",
-    "better-auth": "^1.4.18",
+    "better-auth": "1.5.0-beta.9",
     "drizzle-orm": "^0.41.0",
     "ioredis": "^5.9.3",
     "next": "^15.1.6",
